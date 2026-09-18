@@ -1,0 +1,179 @@
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: NayaInfraUpdated
+
+variables:
+  workingDir: '$(System.DefaultWorkingDirectory)/environment/Dev'
+  backendServiceArm: 'NayaInfra'
+  backendStorageAccount: 'gssstrg'
+  backendContainer: 'gsscontainer'
+  backendKey: 'terraform.backupstate'
+
+stages:
+
+# ----------------------------------------------------
+# STAGE 1: Terraform Init & Validate
+# ----------------------------------------------------
+- stage: Init_Validate
+  displayName: 'Terraform Init & Validate'
+  jobs:
+    - job: InitValidate
+      displayName: 'Init and Validate'
+      steps:
+        - task: TerraformTask@5
+          displayName: 'Terraform Init'
+          inputs:
+            provider: 'azurerm'
+            command: 'init'
+            workingDirectory: '$(workingDir)'
+            backendServiceArm: '$(backendServiceArm)'
+            backendAzureRmStorageAccountName: '$(backendStorageAccount)'
+            backendAzureRmContainerName: '$(backendContainer)'
+            backendAzureRmKey: '$(backendKey)'
+
+        - task: TerraformTask@5
+          displayName: 'Terraform Validate'
+          inputs:
+            provider: 'azurerm'
+            command: 'validate'
+            workingDirectory: '$(workingDir)'
+
+# ----------------------------------------------------
+# STAGE 2: TFLint
+# ----------------------------------------------------
+- stage: TFLint
+  displayName: 'TFLint Scan'
+  dependsOn: Init_Validate
+  condition: succeeded()
+  jobs:
+    - job: RunTFLint
+      displayName: 'Run TFLint'
+      steps:
+        - script: |
+            curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+            cd $(workingDir)
+            tflint --init
+            tflint
+          displayName: 'Install and Run TFLint'
+
+# ----------------------------------------------------
+# STAGE 3: TFSec
+# ----------------------------------------------------
+- stage: TFSec
+  displayName: 'TFSec Scan'
+  dependsOn: TFLint
+  condition: succeeded()
+  jobs:
+    - job: RunTFSec
+      displayName: 'Run TFSec'
+      steps:
+        - script: |
+            curl -s -L https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+            cd $(workingDir)
+            tfsec .
+          displayName: 'Install and Run TFSec'
+
+# ----------------------------------------------------
+# STAGE 4: Checkov
+# ----------------------------------------------------
+- stage: Checkov
+  displayName: 'Checkov Scan'
+  dependsOn: TFSec
+  condition: succeeded()
+  jobs:
+    - job: RunCheckov
+      displayName: 'Run Checkov'
+      steps:
+        - script: |
+            pip3 install checkov
+            cd $(workingDir)
+            checkov -d .
+          displayName: 'Install and Run Checkov'
+
+# ----------------------------------------------------
+# STAGE 5: Manual Approval
+# ----------------------------------------------------
+- stage: Approval
+  displayName: 'Manual Approval Gate'
+  dependsOn: Checkov
+  condition: succeeded()
+  jobs:
+    - deployment: WaitForApproval
+      displayName: 'Approval Before Plan'
+      environment: 'Dev-Approval'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - script: echo "Approved. Proceeding to Terraform Plan."
+
+# ----------------------------------------------------
+# STAGE 6: Terraform Plan
+# ----------------------------------------------------
+- stage: Plan
+  displayName: 'Terraform Plan'
+  dependsOn: Approval
+  condition: succeeded()
+  jobs:
+    - job: TerraformPlan
+      displayName: 'Run Terraform Plan'
+      steps:
+        - task: TerraformTask@5
+          displayName: 'Terraform Init (Plan Stage)'
+          inputs:
+            provider: 'azurerm'
+            command: 'init'
+            workingDirectory: '$(workingDir)'
+            backendServiceArm: '$(backendServiceArm)'
+            backendAzureRmStorageAccountName: '$(backendStorageAccount)'
+            backendAzureRmContainerName: '$(backendContainer)'
+            backendAzureRmKey: '$(backendKey)'
+
+        - task: TerraformTask@5
+          displayName: 'Terraform Plan'
+          inputs:
+            provider: 'azurerm'
+            command: 'plan'
+            workingDirectory: '$(workingDir)'
+            environmentServiceNameAzureRM: '$(backendServiceArm)'
+            publishPlanResults: 'DevPlan'
+
+# ----------------------------------------------------
+# STAGE 7: Terraform Apply
+# ----------------------------------------------------
+- stage: Apply
+  displayName: 'Terraform Apply'
+  dependsOn: Plan
+  condition: succeeded()
+  jobs:
+    - deployment: TerraformApplyDeployment
+      displayName: 'Apply Approval + Execution'
+      environment: 'Dev-Apply'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - task: TerraformTask@5
+                displayName: 'Terraform Init (Apply Stage)'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'init'
+                  workingDirectory: '$(workingDir)'
+                  backendServiceArm: '$(backendServiceArm)'
+                  backendAzureRmStorageAccountName: '$(backendStorageAccount)'
+                  backendAzureRmContainerName: '$(backendContainer)'
+                  backendAzureRmKey: '$(backendKey)'
+
+              - task: TerraformTask@5
+                displayName: 'Terraform Apply'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'apply'
+                  workingDirectory: '$(workingDir)'
+                  environmentServiceNameAzureRM: '$(backendServiceArm)'
+
