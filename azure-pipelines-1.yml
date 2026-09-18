@@ -16,7 +16,7 @@ steps:
     command: 'init'
     workingDirectory: '$(System.DefaultWorkingDirectory)/environment/Dev'
     backendServiceArm: 'NayaInfra'
-    backendAzureRmStorageAccountName: 'pipelinestrg'
-    backendAzureRmContainerName: 'pipelinecontainer'
+    backendAzureRmStorageAccountName: 'gauravsris'
+    backendAzureRmContainerName: 'gauravsris'
     backendAzureRmKey: 'backup.tfstate'
 
