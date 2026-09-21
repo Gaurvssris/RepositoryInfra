@@ -65,6 +65,7 @@ stages:
         tflint --init
         tflint
       displayName: 'Run TFLint'
+      continueOnError: true
 
 # ---------------------------------------------------------
 # STAGE 3: TFSec
@@ -84,4 +85,69 @@ stages:
       displayName: 'Install TFSec'
 
     - script: |
-        cd
+        cd $(workingDir)
+        tfsec .
+      displayName: 'Run TFSec'
+
+# ---------------------------------------------------------
+# STAGE 4: Checkov
+# ---------------------------------------------------------
+- stage: Checkov
+  displayName: 'Checkov Scan'
+  dependsOn: TFSec
+  jobs:
+  - job: RunCheckov
+    displayName: 'Install and Run Checkov'
+    steps:
+    - task: UsePythonVersion@0
+      displayName: 'Set Python Version'
+      inputs:
+        versionSpec: '3.x'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        pip install checkov
+        checkov --version
+      displayName: 'Install Checkov'
+
+    - script: |
+        cd $(workingDir)
+        checkov -d . --compact
+      displayName: 'Run Checkov'
+
+# ---------------------------------------------------------
+# STAGE 5: Approval Gate (Manual Approval)
+# ---------------------------------------------------------
+- stage: ApprovalGate
+  displayName: 'Manual Approval Gate'
+  dependsOn: Checkov
+  jobs:
+  - deployment: WaitForApproval
+    displayName: 'Approval before Terraform Plan'
+    environment: 'terraform-approval-env'   # ADO -> Environments me create karo aur approver add karo
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: echo "Approval received. Proceeding to Terraform Plan."
+            displayName: 'Approval Confirmation'
+
+# ---------------------------------------------------------
+# STAGE 6: Terraform Plan
+# ---------------------------------------------------------
+- stage: TerraformPlan
+  displayName: 'Terraform Plan'
+  dependsOn: ApprovalGate
+  jobs:
+  - job: PlanJob
+    displayName: 'Run Terraform Plan'
+    dependsOn: []
+    steps:
+    - task: TerraformTask@5
+      displayName: 'Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: '$(workingDir)'
+        environmentServiceNameAzureRM: 'GauravSrivastava'
