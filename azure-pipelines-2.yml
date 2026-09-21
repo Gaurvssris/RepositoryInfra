@@ -9,13 +9,79 @@ trigger:
 pool:
   name: GauravSrivastava
 
-steps:
-- task: TerraformTask@5
-  inputs:
-    provider: 'azurerm'
-    command: 'init'
-    workingDirectory: '$(System.DefaultWorkingDirectory)/environment/Dev'
-    backendServiceArm: 'GauravSrivastava'
-    backendAzureRmStorageAccountName: 'gauravsrivastava'
-    backendAzureRmContainerName: 'gauravsrivastava'
-    backendAzureRmKey: 'backup.tfstate'
+variables:
+  workingDir: '$(System.DefaultWorkingDirectory)/environment/Dev'
+  tflintVersion: 'v0.50.3'
+  tfsecVersion: 'v1.28.6'
+
+stages:
+
+# ---------------------------------------------------------
+# STAGE 1: Terraform Init + Validate
+# ---------------------------------------------------------
+- stage: TerraformInitValidate
+  displayName: 'Terraform Init & Validate'
+  jobs:
+  - job: InitValidate
+    displayName: 'Init and Validate'
+    steps:
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(workingDir)'
+        backendServiceArm: 'GauravSrivastava'
+        backendAzureRmStorageAccountName: 'gauravsrivastava'
+        backendAzureRmContainerName: 'gauravsrivastava'
+        backendAzureRmKey: 'backup.tfstate'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+        workingDirectory: '$(workingDir)'
+
+# ---------------------------------------------------------
+# STAGE 2: TFLint
+# ---------------------------------------------------------
+- stage: TFLint
+  displayName: 'TFLint Scan'
+  dependsOn: TerraformInitValidate
+  jobs:
+  - job: RunTFLint
+    displayName: 'Install and Run TFLint'
+    steps:
+    - script: |
+        curl -sL "https://github.com/terraform-linters/tflint/releases/download/$(tflintVersion)/tflint_linux_amd64.zip" -o tflint.zip
+        unzip -o tflint.zip -d tflint_bin
+        sudo mv tflint_bin/tflint /usr/local/bin/tflint
+        tflint --version
+      displayName: 'Install TFLint'
+
+    - script: |
+        cd $(workingDir)
+        tflint --init
+        tflint
+      displayName: 'Run TFLint'
+
+# ---------------------------------------------------------
+# STAGE 3: TFSec
+# ---------------------------------------------------------
+- stage: TFSec
+  displayName: 'TFSec Scan'
+  dependsOn: TFLint
+  jobs:
+  - job: RunTFSec
+    displayName: 'Install and Run TFSec'
+    steps:
+    - script: |
+        curl -sL "https://github.com/aquasecurity/tfsec/releases/download/$(tfsecVersion)/tfsec-linux-amd64" -o tfsec
+        chmod +x tfsec
+        sudo mv tfsec /usr/local/bin/tfsec
+        tfsec --version
+      displayName: 'Install TFSec'
+
+    - script: |
+        cd
