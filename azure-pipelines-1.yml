@@ -1,0 +1,22 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- main
+
+pool:
+  name: Gauravsris
+
+steps:
+- task: TerraformTask@5
+  inputs:
+    provider: 'azurerm'
+    command: 'init'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/environment/Dev'
+    backendServiceArm: 'NayaInfra'
+    backendAzureRmStorageAccountName: 'gauravsris'
+    backendAzureRmContainerName: 'gauravsris'
+    backendAzureRmKey: 'backup.tfstate'
+
