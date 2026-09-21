@@ -1,0 +1,19 @@
+
+
+trigger:
+- main
+
+pool:
+  name: Gau-Vik
+
+steps:
+- task: TerraformTask@5
+  displayName: Terraform Init
+  inputs:
+    provider: 'azurerm'
+    command: 'init'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/environment/Dev'
+    backendServiceArm: 'Gau-Vik'
+    backendAzureRmStorageAccountName: 'GauravSrivastava'
+    backendAzureRmContainerName: 'gauravsrivastava'
+    backendAzureRmKey: 'backup.tfstate'
